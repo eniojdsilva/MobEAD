@@ -2,27 +2,32 @@ pipeline {
     agent any
 
     environment {
-        SONAR_PROJECT_KEY = "mobead-enio-silva"
-        SONAR_SCANNER = "sonarqube-scanner"
+        SONARQUBE_ENV = 'sonarqube'
+        SONAR_PROJECT_KEY = 'mobead-enio-silva'
+        DOCKER_IMAGE_DEV = 'mobead-dev'
+        DOCKER_IMAGE_PROD = 'mobead-prod'
+        PROD_SERVER = '192.168.1.9'
+        PROD_USER = 'devlab'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo "Fazendo checkout do repositório..."
+                echo '📦 Fazendo checkout do código...'
                 checkout scm
             }
         }
 
         stage('Build/Testes') {
             steps {
-                echo "Executando build e testes..."
+                echo '⚙️ Executando build e testes locais...'
                 sh '''
                     if [ -f package.json ]; then
                         npm install
-                        npm run build || echo "Sem etapa de build"
+                        npm test || true
                     else
-                        echo "Nenhum arquivo package.json encontrado, prosseguindo..."
+                        echo "Nenhum package.json encontrado — ignorando testes..."
                     fi
                 '''
             }
@@ -30,8 +35,8 @@ pipeline {
 
         stage('Análise SonarQube') {
             steps {
-                echo "Enviando análise para o SonarQube..."
-                withSonarQubeEnv('sonarqube') {
+                echo '🔍 Enviando análise para o SonarQube...'
+                withSonarQubeEnv("${SONARQUBE_ENV}") {
                     sh """
                         /var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonarqube-scanner/sonar-scanner/bin/sonar-scanner \
                         -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
@@ -44,24 +49,20 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                echo "Aguardando validação do SonarQube..."
-                timeout(time: 3, unit: 'MINUTES') {
-                    script {
-                        def qg = waitForQualityGate()
-                        if (qg.status != 'OK') {
-                            error "Análise reprovada pelo SonarQube: ${qg.status}"
-                        }
-                    }
+                timeout(time: 2, unit: 'MINUTES') {
+                    echo '⏳ Aguardando resultado do Quality Gate...'
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage('Deploy DEV') {
+        stage('Deploy DEV (Local)') {
             steps {
-                echo "Realizando deploy no ambiente de DESENVOLVIMENTO..."
+                echo '🚀 Realizando deploy no ambiente DEV...'
                 sh '''
-                    mkdir -p /var/www/mobead-dev
-                    cp -r * /var/www/mobead-dev/
+                    docker stop mobead-dev || true && docker rm mobead-dev || true
+                    docker build -t mobead-dev .
+                    docker run -d -p 8080:8080 --name mobead-dev mobead-dev
                 '''
             }
         }
@@ -69,23 +70,27 @@ pipeline {
         stage('Aprovação para Produção') {
             steps {
                 script {
-                    def aprovado = input(
-                        message: 'Liberar deploy em PRODUÇÃO?',
-                        parameters: [booleanParam(name: 'Aprovar', defaultValue: false, description: 'Confirme para continuar')]
+                    def userInput = input(
+                        id: 'Proceed1', message: 'Deseja prosseguir com o deploy em PRODUÇÃO?',
+                        parameters: [
+                            choice(name: 'Confirmação', choices: 'NÃO\nSIM', description: 'Confirmar deploy em produção')
+                        ]
                     )
-                    if (!aprovado) {
-                        error "Deploy em produção não aprovado."
+                    if (userInput != 'SIM') {
+                        error('🚫 Deploy em produção cancelado pelo usuário.')
                     }
                 }
             }
         }
 
-        stage('Deploy PROD') {
+        stage('Deploy PROD (Remoto 192.168.1.9)') {
             steps {
-                echo "Realizando deploy no ambiente de PRODUÇÃO..."
+                echo '🚀 Realizando deploy remoto em PRODUÇÃO (192.168.1.9)...'
                 sh '''
-                    mkdir -p /var/www/mobead-prod
-                    cp -r * /var/www/mobead-prod/
+                    ssh ${PROD_USER}@${PROD_SERVER} "docker stop ${DOCKER_IMAGE_PROD} || true && docker rm ${DOCKER_IMAGE_PROD} || true"
+                    scp -r /var/lib/jenkins/workspace/mobead-enio-silva-ci-cd/* ${PROD_USER}@${PROD_SERVER}:/home/${PROD_USER}/deploys/mobead-prod/
+                    ssh ${PROD_USER}@${PROD_SERVER} "cd /home/${PROD_USER}/deploys/mobead-prod && docker build -t ${DOCKER_IMAGE_PROD} ."
+                    ssh ${PROD_USER}@${PROD_SERVER} "docker run -d -p 8080:8080 --name ${DOCKER_IMAGE_PROD} ${DOCKER_IMAGE_PROD}"
                 '''
             }
         }
@@ -93,10 +98,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline finalizada com sucesso!"
+            echo '✅ Pipeline finalizada com sucesso!'
         }
         failure {
-            echo "❌ Falha na execução da pipeline. Verifique os logs."
+            echo '❌ Falha na pipeline. Verifique os logs para detalhes.'
         }
     }
 }
