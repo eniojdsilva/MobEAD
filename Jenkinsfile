@@ -4,7 +4,7 @@ pipeline {
     environment {
         SONAR_SCANNER = 'sonarqube-scanner'
         SONAR_PROJECT_KEY = 'mobead-enio-silva'
-        SONAR_URL = 'http://localhost:9000'
+        SONAR_URL = 'http://192.168.1.15:9000'
     }
 
     stages {
