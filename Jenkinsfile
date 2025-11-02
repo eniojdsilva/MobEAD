@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // Nome do projeto no SonarQube (pode usar seu nome)
         SONAR_PROJECT_KEY = "mobead-enio-silva"
         SONAR_SCANNER = "sonarqube-scanner"
     }
@@ -34,7 +33,7 @@ pipeline {
                 echo "Enviando análise para o SonarQube..."
                 withSonarQubeEnv('sonarqube') {
                     sh """
-                        ${env.SONAR_SCANNER} \
+                        /var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonarqube-scanner/sonar-scanner/bin/sonar-scanner \
                         -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                         -Dsonar.sources=. \
                         -Dsonar.host.url=${SONAR_HOST_URL}
