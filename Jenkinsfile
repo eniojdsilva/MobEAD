@@ -2,39 +2,45 @@ pipeline {
     agent any
 
     environment {
-        // Configurações globais
-        SONARQUBE_ENV = 'sonarqube' // nome configurado no Jenkins (Gerenciar Jenkins → Configurações do SonarQube)
-        SONAR_PROJECT_KEY = 'mobead-enio-silva'
-        SONAR_HOST_URL = 'http://192.168.1.15:9000'
-        DEPLOY_USER = 'devlab'
-        DEPLOY_HOST = '192.168.1.9'
-        DEPLOY_PATH = '/home/devlab/deploys/mobead-prod'
+        // Nome da imagem que será construída localmente
+        imageName = "mobead-prod"
+        // Caminho remoto para o deploy
+        remoteUser = "devlab"
+        remoteHost = "192.168.1.9"
+        remotePath = "/home/devlab/deploys/mobead-prod"
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo '📦 Fazendo checkout do repositório...'
+                echo "🔄 Realizando checkout do código..."
                 checkout scm
             }
         }
 
         stage('Build/Testes') {
             steps {
-                echo '🔧 Projeto HTML estático - sem build necessário.'
+                echo "🧪 Etapa de build e testes (se houver testes locais)"
+                sh 'echo "Nenhum teste configurado ainda..."'
             }
         }
 
         stage('Análise SonarQube') {
+            environment {
+                scannerHome = tool 'sonarqube-scanner' // mesmo nome configurado no Jenkins
+            }
             steps {
-                echo '🔍 Enviando análise para o SonarQube...'
-                withSonarQubeEnv("${SONARQUBE_ENV}") {
+                echo "🔍 Executando análise no SonarQube..."
+                withSonarQubeEnv('SonarQube') {
                     sh '''
-                        ${SONAR_SCANNER} \
-                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                        ${scannerHome}/bin/sonar-scanner \
+                        -Dsonar.projectKey=mobead-enio-silva \
+                        -Dsonar.projectName=mobead-enio-silva \
                         -Dsonar.sources=. \
-                        -Dsonar.host.url=${SONAR_HOST_URL}
+                        -Dsonar.host.url=http://localhost:9000 \
+                        -Dsonar.login=admin \
+                        -Dsonar.password=admin
                     '''
                 }
             }
@@ -43,68 +49,54 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 timeout(time: 2, unit: 'MINUTES') {
+                    echo "🚦 Aguardando resultado do Quality Gate..."
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage('Deploy DEV (local)') {
+        stage('Build Docker Image') {
             steps {
-                echo "🚧 Testando build local do Docker..."
-                sh '''
-                    docker build -t mobead-dev .
-                    docker stop mobead-dev || true
-                    docker rm mobead-dev || true
-                    docker run -d -p 8081:80 --name mobead-dev mobead-dev
-                '''
+                script {
+                    echo "🐳 Construindo imagem Docker local..."
+                    sh "docker build -t ${imageName}:latest ."
+                }
             }
         }
 
-        stage('Aprovação para Produção') {
+        stage('Deploy PROD (Servidor DEVLAB)') {
             steps {
-                input message: "🚀 Deseja liberar o deploy em PRODUÇÃO (192.168.1.9)?", ok: "Sim, liberar"
+                script {
+                    echo "🚀 Enviando aplicação para o servidor de produção (${remoteHost})..."
+
+                    // Remove container antigo e substitui pela nova versão
+                    sh """
+                        ssh ${remoteUser}@${remoteHost} '
+                            docker rm -f ${imageName} 2>/dev/null || true &&
+                            docker rmi ${imageName}:latest 2>/dev/null || true &&
+                            cd ${remotePath}/mobead-enio-silva-ci-cd &&
+                            docker build -t ${imageName}:latest . &&
+                            docker run -d --name ${imageName} -p 8080:80 ${imageName}:latest
+                        '
+                    """
+                }
             }
         }
 
-        stage('Deploy PROD (Servidor 192.168.1.9)') {
+        stage('Cleanup Local') {
             steps {
-                echo "🚀 Iniciando deploy em PRODUÇÃO (192.168.1.9)..."
-                sh '''
-                    # Cria pasta de deploy se não existir
-                    ssh ${DEPLOY_USER}@${DEPLOY_HOST} "mkdir -p ${DEPLOY_PATH}"
-
-                    # Copia arquivos do Jenkins pro servidor remoto
-                    scp -r * ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/
-
-                    # Build da imagem Docker no servidor remoto
-                    ssh ${DEPLOY_USER}@${DEPLOY_HOST} "
-                        cd ${DEPLOY_PATH} && \
-                        docker build -t mobead-prod .
-                    "
-
-                    # Para e remove o container antigo
-                    ssh ${DEPLOY_USER}@${DEPLOY_HOST} "
-                        docker stop mobead-prod || true && \
-                        docker rm mobead-prod || true
-                    "
-
-                    # Sobe o novo container
-                    ssh ${DEPLOY_USER}@${DEPLOY_HOST} "
-                        docker run -d -p 8080:80 --name mobead-prod mobead-prod
-                    "
-
-                    echo "Deploy finalizado com sucesso no servidor ${DEPLOY_HOST}"
-                '''
+                echo "🧹 Limpando imagens locais não utilizadas..."
+                sh 'docker image prune -f || true'
             }
         }
     }
 
     post {
         success {
-            echo 'Pipeline executado com sucesso!'
+            echo "Pipeline concluído com sucesso!"
         }
         failure {
-            echo 'Falha detectada na pipeline. Verifique os logs.'
+            echo "A pipeline falhou. Verifique os logs acima."
         }
     }
 }
