@@ -35,12 +35,10 @@ pipeline {
                 withSonarQubeEnv('SonarQube') {
                     sh '''
                         ${scannerHome}/bin/sonar-scanner \
-                        -Dsonar.projectKey=mobead-enio-silva \
-                        -Dsonar.projectName=mobead-enio-silva \
+                        -Dsonar.projectKey=${sonarProjectKey} \
+                        -Dsonar.projectName=${sonarProjectKey} \
                         -Dsonar.sources=. \
-                        -Dsonar.host.url=http://localhost:9000 \
-                        -Dsonar.login=admin \
-                        -Dsonar.password=admin
+                        -Dsonar.host.url=${sonarURL}
                     '''
                 }
             }
