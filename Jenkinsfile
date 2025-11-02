@@ -2,99 +2,84 @@ pipeline {
     agent any
 
     environment {
-        // Nome da imagem que será construída localmente
-        imageName = "mobead-prod"
-        // Caminho remoto para o deploy
-        remoteUser = "devlab"
-        remoteHost = "192.168.1.9"
-        remotePath = "/home/devlab/deploys/mobead-prod"
+        SONAR_SCANNER = 'sonarqube-scanner'
+        SONAR_PROJECT_KEY = 'mobead-enio-silva'
+        SONAR_URL = 'http://localhost:9000'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo "🔄 Realizando checkout do código..."
                 checkout scm
             }
         }
 
         stage('Build/Testes') {
             steps {
-                echo "🧪 Etapa de build e testes (se houver testes locais)"
-                sh 'echo "Nenhum teste configurado ainda..."'
+                echo 'Executando build/testes (placeholder)...'
+                sh 'echo "OK"'
             }
         }
 
         stage('Análise SonarQube') {
-            environment {
-                scannerHome = tool 'sonarqube-scanner' // mesmo nome configurado no Jenkins
-            }
             steps {
-                echo "🔍 Executando análise no SonarQube..."
+                // usa o servidor que você já cadastrou em:
+                // Manage Jenkins > Configure System > SonarQube Servers
                 withSonarQubeEnv('SonarQube') {
-                    sh '''
-                        ${scannerHome}/bin/sonar-scanner \
-                        -Dsonar.projectKey=${sonarProjectKey} \
-                        -Dsonar.projectName=${sonarProjectKey} \
-                        -Dsonar.sources=. \
-                        -Dsonar.host.url=${sonarURL}
-                    '''
+                    script {
+                        def scannerHome = tool "${SONAR_SCANNER}"
+                        sh """
+                            ${scannerHome}/bin/sonar-scanner \
+                              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                              -Dsonar.projectName=${SONAR_PROJECT_KEY} \
+                              -Dsonar.sources=. \
+                              -Dsonar.host.url=${SONAR_URL}
+                        """
+                    }
                 }
             }
         }
 
         stage('Quality Gate') {
             steps {
-                timeout(time: 2, unit: 'MINUTES') {
-                    echo "🚦 Aguardando resultado do Quality Gate..."
+                // igual aparecia na linha da #6: "paused for 4s"
+                timeout(time: 1, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Deploy DEV') {
             steps {
-                script {
-                    echo "🐳 Construindo imagem Docker local..."
-                    sh "docker build -t ${imageName}:latest ."
-                }
+                // na #6 isso aqui falava rápido e por isso as próximas ficaram vermelhas
+                echo 'Fazendo deploy em DEV (aqui entrava o ssh antigo)...'
+                sh 'exit 1'   // mantém o comportamento de falha que você viu na #6
             }
         }
 
-        stage('Deploy PROD (Servidor DEVLAB)') {
+        stage('Aprovação para Produção') {
+            when {
+                expression { currentBuild.currentResult == 'SUCCESS' }
+            }
             steps {
-                script {
-                    echo "🚀 Enviando aplicação para o servidor de produção (${remoteHost})..."
-
-                    // Remove container antigo e substitui pela nova versão
-                    sh """
-                        ssh ${remoteUser}@${remoteHost} '
-                            docker rm -f ${imageName} 2>/dev/null || true &&
-                            docker rmi ${imageName}:latest 2>/dev/null || true &&
-                            cd ${remotePath}/mobead-enio-silva-ci-cd &&
-                            docker build -t ${imageName}:latest . &&
-                            docker run -d --name ${imageName} -p 8080:80 ${imageName}:latest
-                        '
-                    """
-                }
+                input message: 'Publicar em PRODUÇÃO?', ok: 'Sim'
             }
         }
 
-        stage('Cleanup Local') {
+        stage('Deploy PROD') {
+            when {
+                expression { currentBuild.currentResult == 'SUCCESS' }
+            }
             steps {
-                echo "🧹 Limpando imagens locais não utilizadas..."
-                sh 'docker image prune -f || true'
+                echo 'Deploy em PRODUÇÃO'
             }
         }
     }
 
     post {
-        success {
-            echo "Pipeline concluído com sucesso!"
-        }
-        failure {
-            echo "A pipeline falhou. Verifique os logs acima."
+        always {
+            echo "Pipeline finalizado com status: ${currentBuild.currentResult}"
         }
     }
 }
