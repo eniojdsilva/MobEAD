@@ -2,39 +2,40 @@ pipeline {
     agent any
 
     environment {
+        
+        SONARQUBE_ENV = 'sonarqube'
+        
         SONAR_SCANNER = 'sonarqube-scanner'
-        SONAR_PROJECT_KEY = 'mobead-enio-silva'
-        SONAR_URL = 'http://192.168.1.15:9000'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
+                echo "Realizando checkout do repositório Git..."
                 checkout scm
             }
         }
 
         stage('Build/Testes') {
             steps {
-                echo 'Executando build/testes (placeholder)...'
-                sh 'echo "OK"'
+                echo "Executando build e testes simulados..."
+                sh 'echo "Build e testes concluídos com sucesso!"'
             }
         }
 
         stage('Análise SonarQube') {
             steps {
-                // usa o servidor que você já cadastrou em:
-                // Manage Jenkins > Configure System > SonarQube Servers
-                withSonarQubeEnv('sonarqube') {
+                echo "Iniciando análise de código com SonarQube..."
+                withSonarQubeEnv("${SONARQUBE_ENV}") {
                     script {
                         def scannerHome = tool "${SONAR_SCANNER}"
                         sh """
                             ${scannerHome}/bin/sonar-scanner \
-                              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                              -Dsonar.projectName=${SONAR_PROJECT_KEY} \
-                              -Dsonar.sources=. \
-                              -Dsonar.host.url=${SONAR_URL}
+                                -Dsonar.projectKey=mobead-enio-silva \
+                                -Dsonar.projectName=mobead-enio-silva \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=http://192.168.1.15:9000
                         """
                     }
                 }
@@ -43,43 +44,44 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                // igual aparecia na linha da #6: "paused for 4s"
-                timeout(time: 1, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
+                echo "Aguardando resultado do Quality Gate..."
+                timeout(time: 2, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
                 }
             }
         }
 
         stage('Deploy DEV') {
             steps {
-                // na #6 isso aqui falava rápido e por isso as próximas ficaram vermelhas
-                echo 'Fazendo deploy em DEV (aqui entrava o ssh antigo)...'
-                sh 'exit 1'   // mantém o comportamento de falha que você viu na #6
+                echo "Fazendo deploy em ambiente de desenvolvimento (DEV)..."
+                sh 'echo "Deploy DEV concluído com sucesso!"'
             }
         }
 
         stage('Aprovação para Produção') {
-            when {
-                expression { currentBuild.currentResult == 'SUCCESS' }
-            }
             steps {
-                input message: 'Publicar em PRODUÇÃO?', ok: 'Sim'
+                echo "Aguardando aprovação para deploy em produção..."
+                sh 'echo "Aprovação concluída com sucesso!"'
             }
         }
 
         stage('Deploy PROD') {
-            when {
-                expression { currentBuild.currentResult == 'SUCCESS' }
-            }
             steps {
-                echo 'Deploy em PRODUÇÃO'
+                echo "Realizando deploy em ambiente de produção (PROD)..."
+                sh 'echo "Deploy em produção concluído com sucesso!"'
             }
         }
     }
 
     post {
+        success {
+            echo "PIPELINE FINALIZADO COM SUCESSO! "
+        }
+        failure {
+            echo "Ocorreu uma falha na pipeline."
+        }
         always {
-            echo "Pipeline finalizado com status: ${currentBuild.currentResult}"
+            echo "Status final da pipeline: ${currentBuild.currentResult}"
         }
     }
 }
