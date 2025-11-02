@@ -26,7 +26,7 @@ pipeline {
             steps {
                 // usa o servidor que você já cadastrou em:
                 // Manage Jenkins > Configure System > SonarQube Servers
-                withSonarQubeEnv('SonarQube') {
+                withSonarQubeEnv('sonarqube') {
                     script {
                         def scannerHome = tool "${SONAR_SCANNER}"
                         sh """
